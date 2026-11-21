@@ -1,80 +1,78 @@
-mod cache;
-mod weather;
+mod todo;
 
 use anyhow::{bail, Context, Result};
-use cache::Cache;
-use std::io::{self, Write};
-use weather::{fetch_weather, Weather};
+use std::path::PathBuf;
+use todo::TodoStore;
 
 fn main() -> Result<()> {
-    let mut city = std::env::args().skip(1).collect::<Vec<_>>().join(" ");
-    if city.trim().is_empty() {
-        print!("Enter a city: ");
-        io::stdout().flush().context("could not display prompt")?;
-        io::stdin()
-            .read_line(&mut city)
-            .context("could not read city name")?;
-        city = city.trim().to_owned();
-    }
+    let mut args = std::env::args().skip(1);
+    let command = args.next().unwrap_or_else(|| "list".to_owned());
+    let rest: Vec<String> = args.collect();
+    let path = storage_path();
+    let mut store = TodoStore::load(&path)?;
 
-    if city.is_empty() {
-        bail!("Please provide a city name, for example: cargo run -- London");
-    }
-
-    let cache = Cache::new();
-    let cache_key = city.to_lowercase();
-    let weather = match cache.get(&cache_key) {
-        Some(weather) => weather,
-        None => {
-            let weather = fetch_weather(&city)
-                .with_context(|| format!("could not load weather for {city}"))?;
-            cache.set(cache_key, weather.clone());
-            weather
+    match command.as_str() {
+        "add" => {
+            let description = rest.join(" ").trim().to_owned();
+            if description.is_empty() {
+                bail!("Please provide a task description: cargo run -- add \"Buy groceries\"");
+            }
+            let id = store.add(description)?;
+            store.save(&path)?;
+            println!("Added task #{id}.");
         }
-    };
+        "list" | "ls" => {
+            if !rest.is_empty() {
+                bail!("The list command takes no arguments.");
+            }
+            store.print_list();
+        }
+        "done" | "complete" => {
+            let id = parse_id(&rest, &command)?;
+            store.mark_done(id)?;
+            store.save(&path)?;
+            println!("Completed task #{id}.");
+        }
+        "delete" | "remove" | "rm" => {
+            let id = parse_id(&rest, &command)?;
+            store.delete(id)?;
+            store.save(&path)?;
+            println!("Deleted task #{id}.");
+        }
+        "help" | "--help" | "-h" => print_help(),
+        other => bail!("Unknown command '{other}'. Run `cargo run -- help` for usage."),
+    }
 
-    render_dashboard(&weather);
     Ok(())
 }
 
-fn render_dashboard(weather: &Weather) {
-    let country = weather
-        .country
-        .as_deref()
-        .map(|country| format!(", {country}"))
-        .unwrap_or_default();
+fn storage_path() -> PathBuf {
+    std::env::var_os("TODO_FILE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("todos.json"))
+}
 
-    println!("\nWeather dashboard — {}{}", weather.city, country);
-    println!("{} | Local time: {}", weather.timezone, weather.current.time);
-    println!("{}", "─".repeat(58));
-    println!(
-        "Now: {}  {:.1}°C (feels like {:.1}°C)",
-        weather_description(weather.current.weather_code),
-        weather.current.temperature_2m,
-        weather.current.apparent_temperature
-    );
-    println!(
-        "Humidity: {}%   Wind: {:.1} km/h   Precipitation: {:.1} mm   {}",
-        weather.current.relative_humidity_2m,
-        weather.current.wind_speed_10m,
-        weather.current.precipitation,
-        if weather.current.is_day == 1 { "Day" } else { "Night" }
-    );
-    println!("\n5-day forecast");
-    println!("{:<13} {:<23} {:>8} {:>8} {:>10}", "Date", "Conditions", "Low", "High", "Rain %");
-
-    for day in &weather.forecast {
-        let precipitation = day
-            .precipitation_probability_max
-            .map(|chance| format!("{chance}%"))
-            .unwrap_or_else(|| "—".to_owned());
-        println!(
-            "{:<13} {:<23} {:>7.1}° {:>7.1}° {:>10}",
-            day.date,
-            weather_description(day.weather_code),
-            day.temperature_2m_min,
-            day.temperature_2m_max,
-            precipitation
-        );
+fn parse_id(args: &[String], command: &str) -> Result<u64> {
+    if args.len() != 1 {
+        bail!("Usage: cargo run -- {command} <task-id>");
     }
+    args[0]
+        .parse::<u64>()
+        .with_context(|| format!("'{}' is not a valid task ID", args[0]))
+}
+
+fn print_help() {
+    println!(
+        "To-do list\n\n\
+         Usage:\n\
+         cargo run -- [COMMAND]\n\n\
+         Commands:\n\
+         add <description>  Add a task\n\
+         list               Show all tasks (default)\n\
+         done <task-id>     Mark a task as complete\n\
+         delete <task-id>   Delete a task\
+         help               Show this help\n\n\
+         Tasks are saved in todos.json in the current directory. Set TODO_FILE\n\
+         to use a different JSON storage file."
+    );
 }

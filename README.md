@@ -1,21 +1,27 @@
-# Weather Dashboard
+# To-do List
 
-A small Rust command-line weather dashboard powered by the free Open-Meteo geocoding and forecast APIs. It needs no API key and shows current conditions plus a five-day forecast for a city.
+A simple Rust command-line to-do app. Tasks persist as JSON in `todos.json` in the current directory, so they are still there when you restart the app.
 
-## Run
+## Usage
 
 ```sh
-cargo run -- London
+cargo run -- add "Buy groceries"
+cargo run -- add "Call the dentist"
+cargo run -- list
+cargo run -- done 1
+cargo run -- delete 2
 ```
 
-You can also run `cargo run` and enter a city when prompted. For multi-word city names, pass the words as normal arguments, for example `cargo run -- New York`.
+Running `cargo run` without a command lists tasks. Use `cargo run -- help` to see the available commands.
 
-Temperatures are shown in °C and wind speed in km/h. The dashboard displays the location's local time zone, humidity, apparent temperature, precipitation, and forecast precipitation chance where available.
+Set `TODO_FILE` to store the JSON data at another path, for example:
 
-## Test
+```sh
+TODO_FILE="$HOME/.todos.json" cargo run -- list
+```
+
+## Tests
 
 ```sh
 cargo test
 ```
-
-Weather data is provided by [Open-Meteo](https://open-meteo.com/).
